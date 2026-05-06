@@ -25,3 +25,6 @@ Este projeto foi desenvolvido com o intuito de praticar o desenvolvimento de apl
 2. Clone o repositório:
 ```bash
 git clone https://github.com/seu-usuario/python-pdv-crud-system.git
+
+
+primeiro teste
