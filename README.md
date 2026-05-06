@@ -1,2 +1,6 @@
-# python-pdv-crud-system
-Desktop Point of Sale (POS) system built with Python, Tkinter and SQL, featuring CRUD operations for product and sales management.
+## 💻 Requirements
+- Python 3 installed
+
+## ▶️ How to run
+```bash
+python main.py
