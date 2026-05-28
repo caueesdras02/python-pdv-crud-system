@@ -1,11 +1,12 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from produto import (listar_produtos, criar_produto,
-                             atualizar_produto, deletar_produto,
-                             atualizar_situacao, buscar_produto)
+from produto import (
+    listar_produtos, criar_produto, atualizar_produto, deletar_produto,
+    atualizar_situacao, buscar_produto, listar_categorias, relatorio_lucros
+)
 
 CORES = {
     "fundo": "#1E1E2E", "painel": "#2A2A3E",
@@ -17,36 +18,30 @@ CORES = {
 
 
 class TelaGerente(tk.Tk):
-    """
-    Painel do gerente — CRUD completo de produtos.
-    """
+    """Painel do gerente - CRUD completo de produtos e relatorio de lucros."""
 
     def __init__(self, usuario):
         super().__init__()
         self.usuario = usuario
-        self.title(f"PDV — Gerente: {usuario['nome']}")
-        self.geometry("960x600")
+        self.title(f"PDV - Gerente: {usuario['nome']}")
+        self.geometry("1080x620")
         self.configure(bg=CORES["fundo"])
         self._construir_ui()
         self._carregar_produtos()
 
-    # ── Interface ────────────────────────────
     def _construir_ui(self):
-        # Header
         header = tk.Frame(self, bg=CORES["primaria"], padx=20, pady=12)
         header.pack(fill="x")
-        tk.Label(header, text="🏪 PDV Estoque — Gerente",
+        tk.Label(header, text="PDV Estoque - Gerente",
                  font=("Segoe UI", 14, "bold"),
                  bg=CORES["primaria"], fg=CORES["texto"]).pack(side="left")
-        tk.Label(header, text=f"👤 {self.usuario['nome']}",
+        tk.Label(header, text=f"Usuario: {self.usuario['nome']}",
                  font=("Segoe UI", 10),
                  bg=CORES["primaria"], fg=CORES["texto"]).pack(side="right")
 
-        # Área principal
         main = tk.Frame(self, bg=CORES["fundo"], padx=20, pady=16)
         main.pack(fill="both", expand=True)
 
-        # Barra de ações
         barra = tk.Frame(main, bg=CORES["fundo"])
         barra.pack(fill="x", pady=(0, 12))
 
@@ -54,11 +49,12 @@ class TelaGerente(tk.Tk):
                  font=("Segoe UI", 14, "bold"),
                  bg=CORES["fundo"], fg=CORES["texto"]).pack(side="left")
 
-        for (texto, cor, cmd) in [
-            ("➕  Novo Produto",    CORES["verde"],    self._abrir_form_criar),
-            ("✏️  Editar",          CORES["amarelo"],  self._editar_produto),
-            ("🔄  Situação",        CORES["primaria"], self._alternar_situacao),
-            ("🗑️  Deletar",         CORES["vermelho"], self._deletar_produto),
+        for texto, cor, cmd in [
+            ("Novo Produto", CORES["verde"], self._abrir_form_criar),
+            ("Editar", CORES["amarelo"], self._editar_produto),
+            ("Relatorio de Lucros", CORES["verde"], self._abrir_relatorio_lucros),
+            ("Situacao", CORES["primaria"], self._alternar_situacao),
+            ("Deletar", CORES["vermelho"], self._deletar_produto),
         ]:
             tk.Button(
                 barra, text=texto, font=("Segoe UI", 10, "bold"),
@@ -66,12 +62,26 @@ class TelaGerente(tk.Tk):
                 padx=12, pady=6, command=cmd
             ).pack(side="right", padx=4)
 
-        # Tabela
-        colunas = ("ID", "Nome", "Categoria", "Quantidade", "Preço", "Situação")
+        filtro = tk.Frame(main, bg=CORES["fundo"])
+        filtro.pack(fill="x", pady=(0, 12))
+        tk.Label(filtro, text="Categoria:",
+                 font=("Segoe UI", 10),
+                 bg=CORES["fundo"], fg=CORES["texto_sub"]).pack(side="left")
+        self.categoria_var = tk.StringVar(value="Todas")
+        self.combo_categoria = ttk.Combobox(
+            filtro, textvariable=self.categoria_var,
+            state="readonly", width=24
+        )
+        self.combo_categoria.pack(side="left", padx=8)
+        self.combo_categoria.bind("<<ComboboxSelected>>", lambda e: self._carregar_produtos())
+
+        colunas = ("ID", "Nome", "Categoria", "Quantidade", "Compra", "Venda", "Situacao")
         self.tabela = ttk.Treeview(main, columns=colunas, show="headings", height=18)
 
-        larguras = {"ID": 40, "Nome": 240, "Categoria": 140,
-                    "Quantidade": 100, "Preço": 100, "Situação": 90}
+        larguras = {
+            "ID": 40, "Nome": 240, "Categoria": 140, "Quantidade": 100,
+            "Compra": 100, "Venda": 100, "Situacao": 90
+        }
 
         for col in colunas:
             self.tabela.heading(col, text=col)
@@ -90,37 +100,52 @@ class TelaGerente(tk.Tk):
         self.tabela.pack(fill="both", expand=True)
         self.tabela.tag_configure("em_falta", foreground="#64748B")
 
+    def _atualizar_categorias(self):
+        categoria_atual = self.categoria_var.get()
+        categorias = ["Todas"] + listar_categorias()
+        self.combo_categoria["values"] = categorias
+        if categoria_atual in categorias:
+            self.categoria_var.set(categoria_atual)
+        else:
+            self.categoria_var.set("Todas")
+
+    def _categoria_filtrada(self):
+        categoria = self.categoria_var.get()
+        return None if categoria == "Todas" else categoria
+
     def _carregar_produtos(self):
+        self._atualizar_categorias()
         for row in self.tabela.get_children():
             self.tabela.delete(row)
 
-        for p in listar_produtos():
+        for p in listar_produtos(self._categoria_filtrada()):
             tag = "em_falta" if p["situacao"] == "em_falta" else ""
             self.tabela.insert("", "end", iid=str(p["id"]), values=(
-                p["id"], p["nome"], p["categoria"],
-                p["quantidade"], f"R$ {p['preco']:.2f}", p["situacao"].capitalize()
+                p["id"], p["nome"], p["categoria"], p["quantidade"],
+                f"R$ {p['preco_compra']:.2f}", f"R$ {p['preco']:.2f}",
+                p["situacao"].capitalize()
             ), tags=(tag,))
 
     def _produto_selecionado(self):
-        """Retorna o ID do produto selecionado na tabela, ou None."""
         selecionado = self.tabela.selection()
         if not selecionado:
-            messagebox.showwarning("Atenção", "Selecione um produto na tabela.")
+            messagebox.showwarning("Atencao", "Selecione um produto na tabela.")
             return None
         return int(selecionado[0])
 
-    # ── Ações CRUD ───────────────────────────
     def _abrir_form_criar(self):
         FormProduto(self, titulo="Novo Produto", callback=self._salvar_novo)
 
     def _salvar_novo(self, dados):
-        ok = criar_produto(dados["nome"], dados["categoria"],
-                           dados["quantidade"], dados["preco"])
+        ok = criar_produto(
+            dados["nome"], dados["categoria"], dados["quantidade"],
+            dados["preco_compra"], dados["preco"]
+        )
         if ok:
             messagebox.showinfo("Sucesso", "Produto cadastrado com sucesso!")
             self._carregar_produtos()
         else:
-            messagebox.showerror("Erro", "Não foi possível cadastrar o produto.")
+            messagebox.showerror("Erro", "Nao foi possivel cadastrar o produto.")
 
     def _editar_produto(self):
         pid = self._produto_selecionado()
@@ -131,8 +156,10 @@ class TelaGerente(tk.Tk):
                     callback=lambda d: self._salvar_edicao(pid, d))
 
     def _salvar_edicao(self, pid, dados):
-        ok = atualizar_produto(pid, dados["nome"], dados["categoria"],
-                               dados["quantidade"], dados["preco"], dados["situacao"])
+        ok = atualizar_produto(
+            pid, dados["nome"], dados["categoria"], dados["quantidade"],
+            dados["preco_compra"], dados["preco"], dados["situacao"]
+        )
         if ok:
             messagebox.showinfo("Sucesso", "Produto atualizado!")
             self._carregar_produtos()
@@ -152,24 +179,27 @@ class TelaGerente(tk.Tk):
             return
         produto = buscar_produto(pid)
         confirmar = messagebox.askyesno(
-            "Confirmar", f"Deseja deletar o produto '{produto['nome']}'?\nEssa ação não pode ser desfeita."
+            "Confirmar",
+            f"Deseja deletar o produto '{produto['nome']}'?\nEssa acao nao pode ser desfeita."
         )
         if confirmar:
             deletar_produto(pid)
             self._carregar_produtos()
 
+    def _abrir_relatorio_lucros(self):
+        RelatorioLucros(self, self._categoria_filtrada())
 
-# ── Formulário de Produto (criar / editar) ────
+
 class FormProduto(tk.Toplevel):
     """Janela modal para criar ou editar um produto."""
 
     def __init__(self, parent, titulo, callback, produto=None):
         super().__init__(parent)
         self.title(titulo)
-        self.geometry("400x420")
+        self.geometry("430x500")
         self.resizable(False, False)
         self.configure(bg=CORES["fundo"])
-        self.grab_set()  # Bloqueia a janela principal enquanto o form está aberto
+        self.grab_set()
         self.callback = callback
         self.produto = produto
         self._construir_form()
@@ -188,15 +218,18 @@ class FormProduto(tk.Toplevel):
 
         tk.Label(self, text="Quantidade *", font=("Segoe UI", 10),
                  bg=CORES["fundo"], fg=CORES["texto_sub"], anchor="w").pack(fill="x", **pad)
-        self.e_qtd = self._entry(str(p.get("quantidade", "0")))
+        self.e_qtd = self._entry("" if not self.produto else str(p.get("quantidade", "")))
 
-        tk.Label(self, text="Preço (R$) *", font=("Segoe UI", 10),
+        tk.Label(self, text="Preco de compra (R$) *", font=("Segoe UI", 10),
                  bg=CORES["fundo"], fg=CORES["texto_sub"], anchor="w").pack(fill="x", **pad)
-        self.e_preco = self._entry(str(p.get("preco", "0.00")))
+        self.e_preco_compra = self._entry("" if not self.produto else str(p.get("preco_compra", "")))
 
-        # Situação — só aparece na edição
+        tk.Label(self, text="Preco de venda (R$) *", font=("Segoe UI", 10),
+                 bg=CORES["fundo"], fg=CORES["texto_sub"], anchor="w").pack(fill="x", **pad)
+        self.e_preco = self._entry("" if not self.produto else str(p.get("preco", "")))
+
         if self.produto:
-            tk.Label(self, text="Situação", font=("Segoe UI", 10),
+            tk.Label(self, text="Situacao", font=("Segoe UI", 10),
                      bg=CORES["fundo"], fg=CORES["texto_sub"], anchor="w").pack(fill="x", **pad)
             self.situacao_var = tk.StringVar(value=p.get("situacao", "reabastecido"))
             frame_sit = tk.Frame(self, bg=CORES["fundo"])
@@ -227,25 +260,87 @@ class FormProduto(tk.Toplevel):
         return e
 
     def _salvar(self):
-        nome  = self.e_nome.get().strip()
-        cat   = self.e_cat.get().strip()
-        qtd   = self.e_qtd.get().strip()
+        nome = self.e_nome.get().strip()
+        cat = self.e_cat.get().strip()
+        qtd = self.e_qtd.get().strip()
+        preco_compra = self.e_preco_compra.get().strip()
         preco = self.e_preco.get().strip()
 
-        if not all([nome, cat, qtd, preco]):
-            self.lbl_erro.config(text="⚠ Preencha todos os campos obrigatórios.")
+        if not all([nome, cat, qtd, preco_compra, preco]):
+            self.lbl_erro.config(text="Preencha todos os campos obrigatorios.")
             return
 
         try:
-            qtd   = int(qtd)
-            preco = float(preco)
+            qtd = int(qtd)
+            preco_compra = float(preco_compra.replace(",", "."))
+            preco = float(preco.replace(",", "."))
         except ValueError:
-            self.lbl_erro.config(text="⚠ Quantidade deve ser inteiro e Preço deve ser número.")
+            self.lbl_erro.config(text="Quantidade deve ser inteiro e precos devem ser numeros.")
             return
 
-        dados = {"nome": nome, "categoria": cat, "quantidade": qtd, "preco": preco}
+        if qtd < 0 or preco_compra < 0 or preco < 0:
+            self.lbl_erro.config(text="Quantidade e precos nao podem ser negativos.")
+            return
+
+        dados = {
+            "nome": nome, "categoria": cat, "quantidade": qtd,
+            "preco_compra": preco_compra, "preco": preco
+        }
         if self.produto:
             dados["situacao"] = self.situacao_var.get()
 
         self.destroy()
         self.callback(dados)
+
+
+class RelatorioLucros(tk.Toplevel):
+    """Mostra o lucro calculado pelas saidas registradas."""
+
+    def __init__(self, parent, categoria=None):
+        super().__init__(parent)
+        self.title("Relatorio de Lucros")
+        self.geometry("880x520")
+        self.configure(bg=CORES["fundo"])
+        self.grab_set()
+        self.categoria = categoria
+        self._construir_ui()
+
+    def _construir_ui(self):
+        titulo = "Relatorio de Lucros"
+        if self.categoria:
+            titulo += f" - Categoria: {self.categoria}"
+        tk.Label(self, text=titulo, font=("Segoe UI", 14, "bold"),
+                 bg=CORES["fundo"], fg=CORES["texto"]).pack(anchor="w", padx=20, pady=(16, 10))
+
+        colunas = ("Produto", "Categoria", "Vendidos", "Custo", "Venda", "Lucro")
+        tabela = ttk.Treeview(self, columns=colunas, show="headings", height=14)
+        larguras = {
+            "Produto": 220, "Categoria": 140, "Vendidos": 90,
+            "Custo": 120, "Venda": 120, "Lucro": 120
+        }
+        for col in colunas:
+            tabela.heading(col, text=col)
+            tabela.column(col, width=larguras[col], anchor="center")
+        tabela.pack(fill="both", expand=True, padx=20)
+
+        total_custo = 0
+        total_venda = 0
+        total_lucro = 0
+        for item in relatorio_lucros(self.categoria):
+            total_custo += item["total_compra"]
+            total_venda += item["total_venda"]
+            total_lucro += item["lucro"]
+            tabela.insert("", "end", values=(
+                item["nome"], item["categoria"], item["quantidade_vendida"],
+                f"R$ {item['total_compra']:.2f}",
+                f"R$ {item['total_venda']:.2f}",
+                f"R$ {item['lucro']:.2f}"
+            ))
+
+        resumo = (
+            f"Custo total: R$ {total_custo:.2f}   |   "
+            f"Venda total: R$ {total_venda:.2f}   |   "
+            f"Lucro total: R$ {total_lucro:.2f}"
+        )
+        tk.Label(self, text=resumo, font=("Segoe UI", 12, "bold"),
+                 bg=CORES["fundo"], fg=CORES["texto"]).pack(anchor="e", padx=20, pady=14)

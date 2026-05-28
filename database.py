@@ -38,8 +38,28 @@ def inicializar_banco():
             nome        TEXT    NOT NULL,
             categoria   TEXT    NOT NULL,
             quantidade  INTEGER NOT NULL DEFAULT 0,
+            preco_compra REAL    NOT NULL DEFAULT 0.0,
             preco       REAL    NOT NULL DEFAULT 0.0,
             situacao    TEXT    NOT NULL DEFAULT 'reabastecido' CHECK(situacao IN ('reabastecido', 'em_falta'))
+        )
+    """)
+
+    cursor.execute("PRAGMA table_info(produtos)")
+    colunas_produtos = [coluna[1] for coluna in cursor.fetchall()]
+    if "preco_compra" not in colunas_produtos:
+        cursor.execute("ALTER TABLE produtos ADD COLUMN preco_compra REAL NOT NULL DEFAULT 0.0")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vendas (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            produto_id     INTEGER NOT NULL,
+            quantidade     INTEGER NOT NULL,
+            preco_compra   REAL    NOT NULL,
+            preco_venda    REAL    NOT NULL,
+            data_venda     TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            usuario_id     INTEGER,
+            FOREIGN KEY (produto_id) REFERENCES produtos(id),
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
         )
     """)
 
