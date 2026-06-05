@@ -1,11 +1,12 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from produto import (
     listar_produtos, criar_produto, atualizar_produto, deletar_produto,
-    atualizar_situacao, buscar_produto, listar_categorias, relatorio_lucros
+    atualizar_situacao, buscar_produto, listar_categorias, relatorio_lucros,
+    listar_saidas, alterar_situacao_estoque
 )
 
 CORES = {
@@ -26,8 +27,28 @@ class TelaGerente(tk.Tk):
         self.title(f"PDV - Gerente: {usuario['nome']}")
         self.geometry("1080x620")
         self.configure(bg=CORES["fundo"])
+        self._construir_menu()
         self._construir_ui()
         self._carregar_produtos()
+
+    def _construir_menu(self):
+        menu = tk.Menu(self)
+        sistema = tk.Menu(menu, tearoff=0)
+        sistema.add_command(label="Trocar usuario", command=self._trocar_usuario)
+        sistema.add_separator()
+        sistema.add_command(label="Sair", command=self.destroy)
+        menu.add_cascade(label="Sistema", menu=sistema)
+
+        relatorios = tk.Menu(menu, tearoff=0)
+        relatorios.add_command(label="Lucros", command=self._abrir_relatorio_lucros)
+        relatorios.add_command(label="Saidas registradas", command=self._abrir_relatorio_saidas)
+        menu.add_cascade(label="Relatorios", menu=relatorios)
+        self.config(menu=menu)
+
+    def _trocar_usuario(self):
+        self.destroy()
+        from login import TelaLogin
+        TelaLogin().mainloop()
 
     def _construir_ui(self):
         header = tk.Frame(self, bg=CORES["primaria"], padx=20, pady=12)
@@ -53,7 +74,8 @@ class TelaGerente(tk.Tk):
             ("Novo Produto", CORES["verde"], self._abrir_form_criar),
             ("Editar", CORES["amarelo"], self._editar_produto),
             ("Relatorio de Lucros", CORES["verde"], self._abrir_relatorio_lucros),
-            ("Situacao", CORES["primaria"], self._alternar_situacao),
+            ("Relatorio de Saidas", CORES["primaria"], self._abrir_relatorio_saidas),
+            ("Atualizar Situacao", CORES["primaria"], self._alternar_situacao),
             ("Deletar", CORES["vermelho"], self._deletar_produto),
         ]:
             tk.Button(
@@ -170,8 +192,31 @@ class TelaGerente(tk.Tk):
             return
         produto = buscar_produto(pid)
         nova = "em_falta" if produto["situacao"] == "reabastecido" else "reabastecido"
-        atualizar_situacao(pid, nova)
+        quantidade = None
+        if nova == "reabastecido" and produto["quantidade"] <= 0:
+            quantidade = simpledialog.askinteger(
+                "Reabastecer",
+                "Informe a quantidade reabastecida:",
+                parent=self,
+                minvalue=1
+            )
+            if quantidade is None:
+                return
+
+        if nova == "em_falta" and produto["quantidade"] > 0:
+            confirmar = messagebox.askyesno(
+                "Confirmar",
+                "Marcar como em falta vai zerar a quantidade em estoque. Deseja continuar?"
+            )
+            if not confirmar:
+                return
+
+        ok, mensagem = alterar_situacao_estoque(pid, nova, quantidade)
         self._carregar_produtos()
+        if ok:
+            messagebox.showinfo("Sucesso", mensagem)
+        else:
+            messagebox.showerror("Erro", mensagem)
 
     def _deletar_produto(self):
         pid = self._produto_selecionado()
@@ -188,6 +233,9 @@ class TelaGerente(tk.Tk):
 
     def _abrir_relatorio_lucros(self):
         RelatorioLucros(self, self._categoria_filtrada())
+
+    def _abrir_relatorio_saidas(self):
+        RelatorioSaidas(self, self._categoria_filtrada())
 
 
 class FormProduto(tk.Toplevel):
@@ -340,6 +388,57 @@ class RelatorioLucros(tk.Toplevel):
         resumo = (
             f"Custo total: R$ {total_custo:.2f}   |   "
             f"Venda total: R$ {total_venda:.2f}   |   "
+            f"Lucro total: R$ {total_lucro:.2f}"
+        )
+        tk.Label(self, text=resumo, font=("Segoe UI", 12, "bold"),
+                 bg=CORES["fundo"], fg=CORES["texto"]).pack(anchor="e", padx=20, pady=14)
+
+
+class RelatorioSaidas(tk.Toplevel):
+    """Mostra todas as saidas/vendas registradas."""
+
+    def __init__(self, parent, categoria=None):
+        super().__init__(parent)
+        self.title("Relatorio de Saidas")
+        self.geometry("1080x540")
+        self.configure(bg=CORES["fundo"])
+        self.grab_set()
+        self.categoria = categoria
+        self._construir_ui()
+
+    def _construir_ui(self):
+        titulo = "Relatorio de Saidas"
+        if self.categoria:
+            titulo += f" - Categoria: {self.categoria}"
+        tk.Label(self, text=titulo, font=("Segoe UI", 14, "bold"),
+                 bg=CORES["fundo"], fg=CORES["texto"]).pack(anchor="w", padx=20, pady=(16, 10))
+
+        colunas = ("Data", "Produto", "Categoria", "Vendedor", "Qtd", "Status", "Compra", "Venda", "Lucro")
+        tabela = ttk.Treeview(self, columns=colunas, show="headings", height=15)
+        larguras = {
+            "Data": 145, "Produto": 220, "Categoria": 130, "Vendedor": 160,
+            "Qtd": 70, "Status": 100, "Compra": 100, "Venda": 100, "Lucro": 100
+        }
+        for col in colunas:
+            tabela.heading(col, text=col)
+            tabela.column(col, width=larguras[col], anchor="center")
+        tabela.pack(fill="both", expand=True, padx=20)
+
+        total_venda = 0
+        total_lucro = 0
+        for saida in listar_saidas(self.categoria):
+            total_venda += saida["total_venda"]
+            total_lucro += saida["lucro"]
+            tabela.insert("", "end", values=(
+                saida["data_venda"], saida["produto"], saida["categoria"],
+                saida["vendedor"], saida["quantidade"], saida["status"].capitalize(),
+                f"R$ {saida['preco_compra']:.2f}",
+                f"R$ {saida['preco_venda']:.2f}",
+                f"R$ {saida['lucro']:.2f}"
+            ))
+
+        resumo = (
+            f"Total em vendas registradas: R$ {total_venda:.2f}   |   "
             f"Lucro total: R$ {total_lucro:.2f}"
         )
         tk.Label(self, text=resumo, font=("Segoe UI", 12, "bold"),

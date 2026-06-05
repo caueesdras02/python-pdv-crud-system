@@ -53,14 +53,43 @@ def inicializar_banco():
         CREATE TABLE IF NOT EXISTS vendas (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
             produto_id     INTEGER NOT NULL,
+            produto_nome   TEXT    NOT NULL DEFAULT '',
+            categoria      TEXT    NOT NULL DEFAULT '',
             quantidade     INTEGER NOT NULL,
             preco_compra   REAL    NOT NULL,
             preco_venda    REAL    NOT NULL,
+            status         TEXT    NOT NULL DEFAULT 'registrada',
             data_venda     TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
             usuario_id     INTEGER,
             FOREIGN KEY (produto_id) REFERENCES produtos(id),
             FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
         )
+    """)
+
+    cursor.execute("PRAGMA table_info(vendas)")
+    colunas_vendas = [coluna[1] for coluna in cursor.fetchall()]
+    for nome_coluna, definicao in [
+        ("produto_nome", "TEXT NOT NULL DEFAULT ''"),
+        ("categoria", "TEXT NOT NULL DEFAULT ''"),
+        ("status", "TEXT NOT NULL DEFAULT 'registrada'"),
+    ]:
+        if nome_coluna not in colunas_vendas:
+            cursor.execute(f"ALTER TABLE vendas ADD COLUMN {nome_coluna} {definicao}")
+
+    cursor.execute("""
+        UPDATE vendas
+        SET
+            produto_nome = COALESCE((SELECT nome FROM produtos WHERE produtos.id = vendas.produto_id), produto_nome),
+            categoria = COALESCE((SELECT categoria FROM produtos WHERE produtos.id = vendas.produto_id), categoria)
+        WHERE produto_nome = '' OR categoria = ''
+    """)
+
+    cursor.execute("""
+        UPDATE produtos
+        SET situacao = CASE
+            WHEN quantidade <= 0 THEN 'em_falta'
+            ELSE 'reabastecido'
+        END
     """)
 
     # Insere usuários padrão para teste, se ainda não existirem

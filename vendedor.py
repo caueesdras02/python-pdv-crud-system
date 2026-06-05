@@ -1,9 +1,12 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from produto import listar_produtos, listar_categorias, buscar_produto, registrar_saida
+from produto import (
+    listar_produtos, listar_categorias, buscar_produto, registrar_saida,
+    alterar_situacao_estoque
+)
 
 CORES = {
     "fundo": "#1E1E2E", "painel": "#2A2A3E",
@@ -22,8 +25,23 @@ class TelaVendedor(tk.Tk):
         self.title(f"PDV - Vendedor: {usuario['nome']}")
         self.geometry("940x580")
         self.configure(bg=CORES["fundo"])
+        self._construir_menu()
         self._construir_ui()
         self._carregar_produtos()
+
+    def _construir_menu(self):
+        menu = tk.Menu(self)
+        sistema = tk.Menu(menu, tearoff=0)
+        sistema.add_command(label="Trocar usuario", command=self._trocar_usuario)
+        sistema.add_separator()
+        sistema.add_command(label="Sair", command=self.destroy)
+        menu.add_cascade(label="Sistema", menu=sistema)
+        self.config(menu=menu)
+
+    def _trocar_usuario(self):
+        self.destroy()
+        from login import TelaLogin
+        TelaLogin().mainloop()
 
     def _construir_ui(self):
         header = tk.Frame(self, bg=CORES["primaria"], padx=20, pady=12)
@@ -55,10 +73,10 @@ class TelaVendedor(tk.Tk):
         ).pack(side="right", padx=4)
 
         tk.Button(
-            barra, text="Atualizar",
+            barra, text="Atualizar Situacao",
             font=("Segoe UI", 10, "bold"), bg=CORES["primaria"],
             fg=CORES["texto"], relief="flat", cursor="hand2",
-            padx=12, pady=6, command=self._carregar_produtos
+            padx=12, pady=6, command=self._alternar_situacao
         ).pack(side="right", padx=4)
 
         filtro = tk.Frame(main, bg=CORES["fundo"])
@@ -138,6 +156,38 @@ class TelaVendedor(tk.Tk):
             return
         produto = buscar_produto(pid)
         FormSaida(self, produto, self._salvar_saida)
+
+    def _alternar_situacao(self):
+        pid = self._produto_selecionado()
+        if pid is None:
+            return
+        produto = buscar_produto(pid)
+        nova = "em_falta" if produto["situacao"] == "reabastecido" else "reabastecido"
+        quantidade = None
+        if nova == "reabastecido" and produto["quantidade"] <= 0:
+            quantidade = simpledialog.askinteger(
+                "Reabastecer",
+                "Informe a quantidade reabastecida:",
+                parent=self,
+                minvalue=1
+            )
+            if quantidade is None:
+                return
+
+        if nova == "em_falta" and produto["quantidade"] > 0:
+            confirmar = messagebox.askyesno(
+                "Confirmar",
+                "Marcar como em falta vai zerar a quantidade em estoque. Deseja continuar?"
+            )
+            if not confirmar:
+                return
+
+        ok, mensagem = alterar_situacao_estoque(pid, nova, quantidade)
+        self._carregar_produtos()
+        if ok:
+            messagebox.showinfo("Sucesso", mensagem)
+        else:
+            messagebox.showerror("Erro", mensagem)
 
     def _salvar_saida(self, produto_id, quantidade):
         ok, mensagem = registrar_saida(produto_id, quantidade, self.usuario.get("id"))
